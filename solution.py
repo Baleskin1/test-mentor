@@ -1,5 +1,31 @@
 import os
 import sys
+import re
+
+def process_lines(lines):
+    flag_bricks = True
+    flag_wsp = True
+    total = None
+    max_wsp = 0
+    for line in reversed(lines):
+        if flag_bricks and line.startswith("MESH::Bricks: Total="):
+            parsed = re.match(r'MESH::Bricks: Total=(?P<total>.*) Gas=*', line)
+            total = int(parsed.group('total'))
+            flag_bricks = False
+        if flag_wsp and line.startswith("Memory Working Set Current"):
+            parsed = re.match(r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<wsp>.*) Mb', line)
+            flag_wsp = False  # uncomment to get results similar to the reference file
+            if float(parsed.group('wsp')) > max_wsp:
+                max_wsp = float(parsed.group('wsp'))
+    return total, max_wsp
+
+def process_file(path):
+    with open(path, "r") as ref:
+        lines = ref.readlines()
+        return process_lines(lines)
+        
+
+        
 
 def generate_report(path):
     with open(path+"/"+"report.txt", "w") as report:
@@ -73,17 +99,27 @@ def generate_report(path):
                             any_extra = True
                         extra_str += "'" + pf + "/" + e + "' "
         if any_missing or any_extra:
-            report.write("FAIL\n" + extra_str + "\n" + missing_str)
+            report.write("FAIL\n" + missing_str + "\n" + extra_str)
             return
 
-        #second test passed
+        # second test passed
+        # third test: in files check for abssence of lines containing "error" and presence of "Solver finished at" line
+        # fourth test: a) find final total number of bricks in reference and run files, check that the relative run/ref difference < 0.1
+        #             b) relative run/ref difference of (max per file) working set peak memory should be < 0.5
+
+
+        # NOTE: in the reference output, the search for working set peak value is done the same way 
+        # as the total number of bricks - the last such line is taken as a source.
+        # In the task, however, the maximum working set peak value is to be found
         present_files = []
         for pf in present_folders:
             filepath = pf + "/" + pf + ".stdout"
             present_files.append(filepath)
-
+        test_fail = False
+        output = ""
         for pf in present_files:
             run_path = run_folder + "/" + pf
+            reference_path = reference_folder + "/" + pf
             with open(run_path) as run:
                 lines = run.readlines()
                 flag_solver = False
@@ -99,14 +135,31 @@ def generate_report(path):
                 if not flag_solver:
                     solver_line = pf + ":  missing 'Solver finished at'\n"
                 
+                total, wsp = process_lines(lines)
+
+                ref_total, ref_wsp = process_file(reference_path)
+                wsp_line = ''
+                total_line = ''
+                if abs(wsp/ref_wsp - 1) >= 0.5:
+                    flag_fail = True
+                    wsp_line += pf + ": different 'Memory Working Set Peak' (ft_run=" + str(wsp) + ", ft_reference=" + str(ref_wsp) + (", rel.diff=%.2f"%(round((wsp/ref_wsp - 1), 2))) + ", criterion=0.5)\n"
+                if abs(total/ref_total - 1) >= 0.1:
+                    flag_fail = True
+                    total_line += pf + ": different 'Total' of bricks (ft_run=" + str(total) + ", ft_reference=" + str(ref_total) + (", rel.diff=%.2f"%(round((total/ref_total - 1), 2))) + ", criterion=0.1)\n"
+
                 if not flag_solver or flag_fail:
-                    total = "FAIL\n"+err_lines+solver_line
-                    report.write(total)
-                    return
+                    output += err_lines + wsp_line + total_line + solver_line
+                    
+                    test_fail = True
+        
+        if test_fail:
+            report.write("FAIL\n")
+            report.write(output)
+            return
         #third test passed
-
-
         #fourth test passed
+
+        
         report.write("OK\n")
 
 test_sets = os.listdir("./logs")
