@@ -40,9 +40,11 @@ def second_test(path: str, report: TextIOWrapper)->Tuple[bool, set[str]]:
     run_folder = path + "/ft_run"
     reference_subfolders = set(os.listdir(reference_folder))
     run_subfolders = set(os.listdir(run_folder))
+    # folders present in both reference in run can be found
+    # as an intersection of the two sets
     present_folders = run_subfolders.intersection(reference_subfolders)
-    missing_str = ""
-    extra_str = ""
+    missing_str = ""  # buffer for all information on missing files
+    extra_str = ""  # buffer for all information on extra files
     if run_subfolders != reference_subfolders:
         for miss in reference_subfolders.difference(run_subfolders):
             missing_str+="'"+miss+'/'+miss+".stdout' "
@@ -64,10 +66,10 @@ def second_test(path: str, report: TextIOWrapper)->Tuple[bool, set[str]]:
             if ex.endswith(".stdout"):
                 extra_str += "'" + present_folder + "/" + ex + "' "
 
-    if missing_str != "":
+    if missing_str != "": # if there are any missing elements, complete the message
         missing_str = "In ft_run there are missing files present in ft_reference: " + missing_str
 
-    if extra_str != "":
+    if extra_str != "": # if there are any extra elements, complete the message
         extra_str = "In ft_run there are extra files not present in ft_reference: " + extra_str
 
     if missing_str != "" or extra_str != "":
@@ -86,11 +88,13 @@ def process_lines(lines: list[str])->dict:
     total = None
     max_wsp = 0
     for line in reversed(lines):
+        # find the last line of format
         if flag_bricks and line.startswith("MESH::Bricks: Total="):
             parsed = re.match(r'MESH::Bricks: Total=(?P<total>.*) Gas=*', line)
             total = int(parsed.group('total'))
             flag_bricks = False
 
+        # find the last line of format, or the one with the maximum Workin Set Peak Memory
         if flag_wsp and line.startswith("Memory Working Set Current"):
             parsed = re.match(
                 r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<wsp>.*) Mb',
@@ -127,30 +131,30 @@ def third_and_fourth_tests(path: str, present_folders: set[str], report: TextIOW
     :param report - the report file for the test
     """
     output = ""
-    for present_file in sorted(
+    for present_file in sorted(  # sort added for correct file order
         [present_folder + "/" + present_folder + ".stdout" for present_folder in present_folders]
     ):
         with open(path + "/ft_run/" + present_file, "r", encoding="utf-8") as run:
             lines = run.readlines()
             err_lines = ""
             solver_line = present_file + ":  missing 'Solver finished at'\n"
-            for i,line in enumerate(lines):
+            for i,line in enumerate(lines):  # third test
                 if "error" in line.lower().replace(":", " ").split():
                     err_lines += present_file + "(" + str(i+1) + "): " + line
                 if line.startswith("Solver finished at"):
                     solver_line = ""
-
+            # start of the fourth test code
             run_stats = process_lines(lines)
             ref_stats = process_file(path + "/ft_reference/" + present_file)
             wsp_line = ''
             total_line = ''
-            if abs(run_stats["wsp"]/ref_stats["wsp"] - 1) >= 0.5:
+            if abs(run_stats["wsp"]/ref_stats["wsp"] - 1) >= 0.5:  # criterion of 4.(a)
                 wsp_line += present_file + ": different 'Memory Working Set Peak' (ft_run="
                 wsp_line += str(run_stats["wsp"]) + ", ft_reference=" + str(ref_stats["wsp"])
                 wsp_line += f", rel.diff={(round(run_stats['wsp']/ref_stats['wsp'] - 1, 2)):.2f}"
                 wsp_line += ", criterion=0.5)\n"
 
-            if abs(run_stats['total']/ref_stats['total'] - 1) >= 0.1:
+            if abs(run_stats['total']/ref_stats['total'] - 1) >= 0.1:  # criterion of 4.(b)
                 total_line += present_file + ": different 'Total' of bricks (ft_run="
                 total_line += str(run_stats['total']) + ", ft_reference=" + str(ref_stats['total'])
                 total_line += ", rel.diff="
@@ -175,7 +179,6 @@ def generate_report(path: str):
     """
     with open(path+"/"+"report.txt", "w", encoding="utf-8") as report:
         folders = os.listdir(path)
-        #first test: ft_run and ft_reference directories should both exist
         if first_test(folders, report):
             return
         # first test passed
@@ -204,6 +207,7 @@ def main():
             path = "./logs/"+test_set+"/"+test
             with open(path+"/"+"report.txt", "r", encoding="utf-8") as report:
                 data = report.readlines()
+                # for correct text representation (e.g. no 'extra' empty lines)
                 data[-1] = data[-1].removesuffix('\n')
                 verdict = data[0].removesuffix('\n')
                 print(verdict + ":", test_set+"/" + test + "/")
