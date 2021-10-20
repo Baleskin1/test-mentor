@@ -46,7 +46,7 @@ def generate_report(path):
             return
 
         # first test passed
-        # second test: *.stdout file and folder names are the same
+        # second test: *.stdout file and folder names are the same (as sets)
         reference_folder = path + "/ft_reference"
         run_folder = path + "/ft_run"
         reference_subfolders = set(os.listdir(reference_folder))
@@ -77,7 +77,6 @@ def generate_report(path):
                                 extra_str+="'" + e+'/'+file+"' "
         
         present_folders = run_subfolders.intersection(reference_subfolders)
-        paths_to_stdouts = []
         for pf in present_folders:
             pref = reference_folder + "/" + pf
             prun = run_folder + "/" + pf
@@ -99,7 +98,7 @@ def generate_report(path):
                             any_extra = True
                         extra_str += "'" + pf + "/" + e + "' "
         if any_missing or any_extra:
-            report.write("FAIL\n" + missing_str + "\n" + extra_str)
+            report.write("FAIL\n" + missing_str + ("\n" if len(missing_str) else "") + extra_str)
             return
 
         # second test passed
@@ -115,6 +114,7 @@ def generate_report(path):
         for pf in present_folders:
             filepath = pf + "/" + pf + ".stdout"
             present_files.append(filepath)
+        present_files = sorted(present_files)
         test_fail = False
         output = ""
         for pf in present_files:
@@ -163,7 +163,7 @@ def generate_report(path):
         report.write("OK\n")
 
 test_sets = os.listdir("./logs")
-print(test_sets)
+#print(test_sets)
 for test_set in test_sets:
     tests = os.listdir("./logs/"+test_set)
     #print(tests)
@@ -178,7 +178,7 @@ for test_set in test_sets:
             data = report.readlines()
             data[-1] = data[-1].removesuffix('\n')
             verdict = data[0].removesuffix('\n')
-            print(verdict, ":", test_set+"/" + test + "/")
+            print(verdict + ":", test_set+"/" + test + "/")
             if verdict == "FAIL":
                 print(*data[1:], sep='')
     
