@@ -17,15 +17,15 @@ def first_test(folders: set[str], report: TextIOWrapper)->bool:
     :param report - the report file for the test
     """
     flag_fail = False
-    if "ft_reference" not in folders:
+    if "ft_run" not in folders:
         report.write("FAIL\n")
-        report.write("directory missing: ft_reference\n")
+        report.write("directory missing: ft_run\n")
         flag_fail = True
 
-    if "ft_run" not in folders:
+    if "ft_reference" not in folders:
         if not flag_fail:
             report.write("FAIL\n")
-        report.write("directory missing: ft_run\n")
+        report.write("directory missing: ft_reference\n")
         flag_fail = True
     return flag_fail
 
@@ -46,31 +46,31 @@ def second_test(path: str, report: TextIOWrapper)->Tuple[bool, set[str]]:
     missing_str = ""  # buffer for all information on missing files
     extra_str = ""  # buffer for all information on extra files
     if run_subfolders != reference_subfolders:
-        for miss in reference_subfolders.difference(run_subfolders):
-            missing_str+="'"+miss+'/'+miss+".stdout' "
+        for miss in sorted(reference_subfolders.difference(run_subfolders)):
+            missing_str+=" '"+miss+'/'+miss+".stdout',"
 
-        for ex in run_subfolders.difference(reference_subfolders):
+        for ex in sorted(run_subfolders.difference(reference_subfolders)):
             for file in os.listdir(run_folder + "/" + ex):
                 if file.endswith(".stdout"):
-                    extra_str+="'" + ex+'/'+file+"' "
+                    extra_str+=" '" + ex+'/'+file+"',"
 
     for present_folder in present_folders:
         folders = {
             "ref": reference_folder + "/" + present_folder,
             "run": run_folder + "/" + present_folder
             }
-        for mis in set(os.listdir(folders["ref"])).difference(set(os.listdir(folders["run"]))):
-            missing_str+="'" + present_folder + "/" + mis + "' "
+        for mis in sorted(set(os.listdir(folders["ref"])).difference(set(os.listdir(folders["run"])))):
+            missing_str+=" '" + present_folder + "/" + mis + "'"
 
-        for ex in set(os.listdir(folders["run"])).difference(set(os.listdir(folders["ref"]))):
+        for ex in sorted(set(os.listdir(folders["run"])).difference(set(os.listdir(folders["ref"])))):
             if ex.endswith(".stdout"):
-                extra_str += "'" + present_folder + "/" + ex + "' "
+                extra_str += " '" + present_folder + "/" + ex + "'"
 
     if missing_str != "": # if there are any missing elements, complete the message
-        missing_str = "In ft_run there are missing files present in ft_reference: " + missing_str
+        missing_str = "In ft_run there are missing files present in ft_reference:" + missing_str.removesuffix(",")
 
     if extra_str != "": # if there are any extra elements, complete the message
-        extra_str = "In ft_run there are extra files not present in ft_reference: " + extra_str
+        extra_str = "In ft_run there are extra files not present in ft_reference:" + extra_str.removesuffix(",")
 
     if missing_str != "" or extra_str != "":
         report.write("FAIL\n" + missing_str + ("\n" if missing_str != "" else "") + extra_str)
@@ -99,7 +99,6 @@ def process_lines(lines: list[str])->dict:
             parsed = re.match(
                 r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<wsp>.*) Mb',
                 line)
-            #flag_wsp = False  # uncomment to get results similar to the reference file
             if float(parsed.group('wsp')) > max_wsp:
                 max_wsp = float(parsed.group('wsp'))
     return {"total":total, "wsp":max_wsp}
@@ -137,7 +136,7 @@ def third_and_fourth_tests(path: str, present_folders: set[str], report: TextIOW
         with open(path + "/ft_run/" + present_file, "r", encoding="utf-8") as run:
             lines = run.readlines()
             err_lines = ""
-            solver_line = present_file + ":  missing 'Solver finished at'\n"
+            solver_line = present_file + ": missing 'Solver finished at'\n"
             for i,line in enumerate(lines):  # third test
                 if "error" in line.lower().replace(":", " ").split():
                     err_lines += present_file + "(" + str(i+1) + "): " + line
