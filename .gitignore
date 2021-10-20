@@ -131,3 +131,4 @@ dmypy.json
 
 /reference_result.txt
 logs/
+.vscode/
