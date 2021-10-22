@@ -186,8 +186,8 @@ def read_test_data(path_to_log_folder: str, test_full_name: str) -> dict[str]:
     """
     test_data = {}
     test_data["full_name"] = test_full_name
-    test_data["run_files"] = []
-    test_data["reference_files"] = []
+    test_data["run_files"] = set()
+    test_data["reference_files"] = set()
     full_path = path_to_log_folder + '/' + test_data["full_name"]
     walk_results = os.walk(full_path)
     test_data["directories"] = next(walk_results)[1]
@@ -196,11 +196,9 @@ def read_test_data(path_to_log_folder: str, test_full_name: str) -> dict[str]:
             if file.endswith(".stdout"):
                 filename = file.split('.')[0] + '/' + file
                 if "ft_run" in result[0]:
-                    test_data["run_files"].append(filename)
+                    test_data["run_files"].add(filename)
                 elif "ft_reference" in result[0]:
-                    test_data["reference_files"].append(filename)
-    test_data["run_files"] = set(test_data["run_files"])
-    test_data["reference_files"] = set(test_data["reference_files"])
+                    test_data["reference_files"].add(filename)
     return test_data
 
 
