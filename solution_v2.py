@@ -9,7 +9,7 @@ Software Development Intern (DevOps) (Mechanical Analysis Division, R&D, Siemens
 import os
 import re
 import multiprocessing
-from typing import Any, Callable, Tuple
+from typing import Any, Callable, TextIO, Tuple
 
 
 class FileResult:
@@ -78,18 +78,20 @@ def update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable
     return old_value
 
 
-def process_file(name: str, path_to_folder: str) -> FileResult:
+def process_file(name: str, path_to_folder: str, open_file_func: Callable) -> FileResult:
     """
     process a single .stdout file into a FileResult
     :param name - name of the stdout file in format N/N.stdout
     :param path_to_run - path to the folder containing the run and reference folders.
+    :param open_file_func - some callable, that allows to get contents of a file
+            in a manner similar to open(...)
     """
     result = FileResult(name)
     wsp_re = r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<value>.*) Mb'
     bricks_re = r'MESH::Bricks: Total=(?P<value>.*) Gas=*'
     updater_take_last_int = lambda _, y: int(y)
     updater_find_max_float = lambda x, y: max(x, float(y))
-    with open(path_to_folder + "ft_run/" + name, "r", encoding='utf-8') as file:
+    with open_file_func(path_to_folder + "ft_run/" + name, "r", encoding='utf-8') as file:
         for line_number, line in enumerate(file):
             if "error" in line.lower().replace(":", " ").split():
                 result.errors.append((line_number+1, line))
@@ -100,7 +102,7 @@ def process_file(name: str, path_to_folder: str) -> FileResult:
             result.total_bricks["run"] = update(line, "MESH::Bricks: Total=",
                 bricks_re, result.total_bricks["run"], updater_take_last_int)
 
-    with open(path_to_folder + "ft_reference/" + name, "r", encoding='utf-8') as file:
+    with open_file_func(path_to_folder + "ft_reference/" + name, "r", encoding='utf-8') as file:
         for line_number, line in enumerate(file):
             result.wsp["ref"] = update(line, "Memory Working Set Current",
                 wsp_re, result.wsp["ref"], updater_find_max_float)
@@ -148,18 +150,19 @@ class TestResult:
         return f"OK: {self.full_name}\n" if output == f"FAIL: {self.full_name}\n" else output
 
 
-    def write_report(self, path_to_log: str) -> None:
-        """writes a report to file"""
-        with open(
-            path_to_log + '/' + self.full_name + "report.txt",
-            'w', encoding='utf-8') as report:
-
-            report.write(self.report())
+    def write_report(self, writer: TextIO) -> None:
+        """
+        writes a report to file
+        """
+        writer.write(self.report())
 
 
 
 class Test:
-    """class, describing a single test and its data"""
+    """
+    class, describing a single test and its data
+    Also contains processing methods
+    """
     def __init__(self, full_name: str) -> None:
         self.full_name = full_name
         self.directories = []
@@ -167,8 +170,12 @@ class Test:
         self.reference_files = set()
 
 
-    def check(self, path_to_log_folder: str) -> TestResult:
-        """checks the provided test data"""
+    def check(self, path_to_log_folder: str, open_file_func: Callable) -> TestResult:
+        """
+        checks the provided test data
+        :param path_to_log_folder - path to the folder that contains test logs
+        :param open_file_func - function for opening files similar to open(...)
+        """
         result = TestResult(self.full_name)
         for potential in ["ft_run", "ft_reference"]:
             if potential not in self.directories:
@@ -184,7 +191,9 @@ class Test:
             return result
 
         for file in sorted(self.run_files):
-            result.file_data.append(process_file(file, path_to_log_folder + '/' + result.full_name))
+            result.file_data.append(
+                process_file(file, path_to_log_folder + '/' + result.full_name, open_file_func)
+                )
 
         return result
 
@@ -241,8 +250,11 @@ def pipeline(args: Tuple):
     path_to_logs = args[0]
     test_full_name = args[1]
     test_data = Test.read_from_fs(path_to_logs, test_full_name, os.walk)
-    test_result = test_data.check(path_to_logs)
-    test_result.write_report(path_to_logs)
+    test_result = test_data.check(path_to_logs, open)
+    with open(path_to_logs + '/' + test_result.full_name + "report.txt",
+        'w', encoding='utf-8') as report:
+
+        test_result.write_report(report)
     return test_result
 
 
