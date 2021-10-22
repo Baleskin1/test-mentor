@@ -48,8 +48,8 @@ class FileResult:
             if not self.solver_presence:
                 result += f"{self.name}: missing 'Solver finished at'\n"
         if self.failed_wsp():
-            result += (f"{self.name}: different 'Memory Working Set Peak' (ft_run={self.wsp['run']},"
-                f" ft_reference={self.wsp['ref']},"
+            result += (f"{self.name}: different 'Memory Working Set Peak' "
+                f"(ft_run={self.wsp['run']}, ft_reference={self.wsp['ref']},"
                 f" rel.diff={self.wsp['rel.diff']:.2f}, criterion={self.wsp['criterion']})\n"
             )
         if self.failed_total():
