@@ -86,6 +86,9 @@ def process_file(name: str, path_to_folder: str) -> FileResult:
     """
     result = FileResult(name)
     wsp_re = r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<value>.*) Mb'
+    bricks_re = r'MESH::Bricks: Total=(?P<value>.*) Gas=*'
+    updater_take_last_int = lambda _, y: int(y)
+    updater_find_max_float = lambda x, y: max(x, float(y))
     with open(path_to_folder + "ft_run/" + name, "r", encoding='utf-8') as file:
         for line_number, line in enumerate(file):
             if "error" in line.lower().replace(":", " ").split():
@@ -93,18 +96,16 @@ def process_file(name: str, path_to_folder: str) -> FileResult:
             if line.startswith("Solver finished at"):
                 result.solver_presence = True
             result.wsp["run"] = update(line, "Memory Working Set Current",
-                wsp_re, result.wsp["run"], lambda x,y: max(x, float(y)))
+                wsp_re, result.wsp["run"], updater_find_max_float)
             result.total_bricks["run"] = update(line, "MESH::Bricks: Total=",
-                r'MESH::Bricks: Total=(?P<value>.*) Gas=*',
-                result.total_bricks["run"], lambda x,y:int(y))
+                bricks_re, result.total_bricks["run"], updater_take_last_int)
 
-    with open(path_to_folder + "ft_reference/" + name, "r", encoding='utf-8') as reference:
-        for line_number, line in enumerate(reference):
+    with open(path_to_folder + "ft_reference/" + name, "r", encoding='utf-8') as file:
+        for line_number, line in enumerate(file):
             result.wsp["ref"] = update(line, "Memory Working Set Current",
-                wsp_re, result.wsp["ref"], lambda x,y: max(x, float(y)))
+                wsp_re, result.wsp["ref"], updater_find_max_float)
             result.total_bricks["ref"] = update(line, "MESH::Bricks: Total=",
-                r'MESH::Bricks: Total=(?P<value>.*) Gas=*',
-                result.total_bricks["ref"], lambda x,y:int(y))
+                bricks_re, result.total_bricks["ref"], updater_take_last_int)
 
     result.wsp["rel.diff"] = result.wsp["run"]/result.wsp["ref"] - 1
     result.total_bricks["rel.diff"] = result.total_bricks["run"]/result.total_bricks["ref"] - 1
@@ -122,18 +123,18 @@ class TestResult:
         self.extra_files = []
         self.file_data: list[FileResult] = []  # a sorted list expected
         self.solver_presence = False
-        self.failed_tests = [False]*2  # [first check, second check]
 
 
     def report(self) -> str:
         """returns the report for the test"""
         output = f"FAIL: {self.full_name}\n"
         add_quotes = lambda x: f"'{x}'"
-        if self.failed_tests[0]:
+        if self.missing_directories:
             for directory in self.missing_directories:
                 output += f"directory missing: {directory}\n"
             return output
-        if self.failed_tests[1]:
+
+        if self.missing_files or self.extra_files:
             if self.missing_files:
                 output += "In ft_run there are missing files present in ft_reference: "
                 output += ", ".join(map(add_quotes, self.missing_files)) + "\n"
@@ -152,61 +153,82 @@ class TestResult:
         with open(
             path_to_log + '/' + self.full_name + "report.txt",
             'w', encoding='utf-8') as report:
+
             report.write(self.report())
 
 
 
-def check(path_to_log_folder: str, test_data: dict) -> TestResult:
-    """checks the provided test data"""
-    result = TestResult(test_data['full_name'])
-    for potential in ["ft_run", "ft_reference"]:
-        if potential not in test_data['directories']:
-            result.failed_tests[0] = True
-            result.missing_directories.append(potential)
+class Test:
+    """class, describing a single test and its data"""
+    def __init__(self, full_name: str) -> None:
+        self.full_name = full_name
+        self.directories = []
+        self.run_files = set()
+        self.reference_files = set()
 
-    if result.failed_tests[0]:
+
+    def check(self, path_to_log_folder: str) -> TestResult:
+        """checks the provided test data"""
+        result = TestResult(self.full_name)
+        for potential in ["ft_run", "ft_reference"]:
+            if potential not in self.directories:
+                result.missing_directories.append(potential)
+
+        if result.missing_directories:
+            return result
+
+        if self.run_files != self.reference_files:
+            result.missing_files = sorted(
+                self.reference_files.difference(self.run_files))
+            result.extra_files = sorted(self.run_files.difference(self.reference_files))
+            return result
+
+        for file in sorted(self.run_files):
+            result.file_data.append(process_file(file, path_to_log_folder + '/' + result.full_name))
+
         return result
 
-    if test_data["run_files"] != test_data["reference_files"]:
-        result.missing_files = sorted(
-            test_data["reference_files"].difference(test_data["run_files"]))
-        result.extra_files = sorted(test_data["run_files"].difference(test_data["reference_files"]))
-        result.failed_tests[1] = True
-        return result
 
-    for file in sorted(test_data["run_files"]):
-        result.file_data.append(process_file(file, path_to_log_folder + '/' + result.full_name))
+    @staticmethod
+    def read_from_fs(path_to_log_folder: str, test_full_name: str, traverse_func: Callable):
+        """
+        reads the data (directories, filenames,...) of a single test
+        :param path_to_log_folder - path to logs
+        :param test_full_name - full name of the test if form TEST_SET/TEST_NAME/
+                (for futher details, see reference_result.txt)
+        :param traverse_function - function for traversing the test folder.
+                Should be similar to os.walk in terms of interface and return value format
+        """
+        test_data = Test(test_full_name)
+        test_data.run_files= set()
+        test_data.reference_files = set()
+        full_path = path_to_log_folder + '/' + test_data.full_name
+        walk_results = traverse_func(full_path)
+        test_data.directories = next(walk_results)[1]
+        for result in walk_results:
+            for file in result[2]:
+                if file.endswith(".stdout"):
+                    filename = file.split('.')[0] + '/' + file
+                    if "ft_run" in result[0]:
+                        test_data.run_files.add(filename)
+                    elif "ft_reference" in result[0]:
+                        test_data.reference_files.add(filename)
+        return test_data
 
-    return result
 
 
-def read_test_data(path_to_log_folder: str, test_full_name: str) -> dict[str]:
+
+def get_test_list(path_to_log_folder: str, list_subdirectories: Callable):
     """
-    reads the data (directories, filenames,...) of a single test
+    returns a list of available test names
+    :param path_to_log_folder - path to the folder that contains logs
+    :param list_subdirectories - some callable that returns
+            a list of subdirs of a given path. Should be similar to os.listdir
+            in terms of interface and return value format
     """
-    test_data = {}
-    test_data["full_name"] = test_full_name
-    test_data["run_files"] = set()
-    test_data["reference_files"] = set()
-    full_path = path_to_log_folder + '/' + test_data["full_name"]
-    walk_results = os.walk(full_path)
-    test_data["directories"] = next(walk_results)[1]
-    for result in walk_results:
-        for file in result[2]:
-            if file.endswith(".stdout"):
-                filename = file.split('.')[0] + '/' + file
-                if "ft_run" in result[0]:
-                    test_data["run_files"].add(filename)
-                elif "ft_reference" in result[0]:
-                    test_data["reference_files"].add(filename)
-    return test_data
-
-
-def get_test_list(path_to_log_folder: str):
-    """returns a list of available test names"""
     tests = []
-    for test_set in os.listdir(path_to_log_folder):
-        for test in os.listdir(path_to_log_folder + '/' + test_set):
+    for test_set in list_subdirectories(path_to_log_folder):
+        for test in list_subdirectories(path_to_log_folder + '/' + test_set):
             tests.append(f'{test_set}/{test}/')
     return tests
 
@@ -217,16 +239,16 @@ def pipeline(args: Tuple):
     :param args - [path to log folder, test full name]
     """
     path_to_logs = args[0]
-    test = args[1]
-    test_data = read_test_data(path_to_logs, test)
-    test_result = check(path_to_logs, test_data)
+    test_full_name = args[1]
+    test_data = Test.read_from_fs(path_to_logs, test_full_name, os.walk)
+    test_result = test_data.check(path_to_logs)
     test_result.write_report(path_to_logs)
     return test_result
 
 
 def process(path_to_log: str):
     """processes the logs as per the task"""
-    tests = get_test_list(path_to_log)
+    tests = get_test_list(path_to_log, os.listdir)
     with multiprocessing.Pool() as pool:
         test_results = pool.map(pipeline, zip([path_to_log]*len(tests), tests))
         for result in test_results:
