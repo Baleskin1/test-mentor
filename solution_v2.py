@@ -82,15 +82,15 @@ class FileResult:
                 result.errors.append((line_number+1, line))
             if line.startswith("Solver finished at"):
                 result.solver_presence = True
-            result.wsp["run"] = update(line, "Memory Working Set Current",
+            result.wsp["run"] = _update(line, "Memory Working Set Current",
                 wsp_re, result.wsp["run"], updater_find_max_float)
-            result.total_bricks["run"] = update(line, "MESH::Bricks: Total=",
+            result.total_bricks["run"] = _update(line, "MESH::Bricks: Total=",
                 bricks_re, result.total_bricks["run"], updater_take_last_int)
 
         for line in ref_file:
-            result.wsp["ref"] = update(line, "Memory Working Set Current",
+            result.wsp["ref"] = _update(line, "Memory Working Set Current",
                 wsp_re, result.wsp["ref"], updater_find_max_float)
-            result.total_bricks["ref"] = update(line, "MESH::Bricks: Total=",
+            result.total_bricks["ref"] = _update(line, "MESH::Bricks: Total=",
                 bricks_re, result.total_bricks["ref"], updater_take_last_int)
 
         result.wsp["rel.diff"] = result.wsp["run"]/result.wsp["ref"] - 1
@@ -99,7 +99,7 @@ class FileResult:
 
 
 
-def update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable) -> Any:
+def _update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable) -> Any:
     """
     Updates the value with string
     :param line - line taken as a source
