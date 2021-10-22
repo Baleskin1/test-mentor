@@ -6,34 +6,38 @@ Software Development Intern (DevOps) (Mechanical Analysis Division, R&D, Siemens
 """
 
 
-
 import os
 import re
 import multiprocessing
+from typing import Any, Callable, Tuple
 
 
 class FileResult:
     """
     Class containig check results for a single file
     """
-    def __init__(self, name) -> None:
+    def __init__(self, name: str) -> None:
         self.name = name
         self.errors = []  # expected structure [[line number, error line]]
         self.solver_presence = False
         self.wsp = {"run": 0.0, "ref": 0.0, "rel.dif": 0.0, "criterion": 0.5}
         self.total_bricks = {"run": 0, "ref": 0, "rel.diff": 0.0, "criterion": 0.1}
 
+
     def failed_3(self) -> bool:
         """returns, whether the third test was failed"""
         return len(self.errors) or not self.solver_presence
+
 
     def failed_wsp(self) -> bool:
         """returns, whether the fourth test's (a) was failed"""
         return abs(self.wsp["rel.diff"]) > self.wsp["criterion"]
 
+
     def failed_total(self) -> bool:
         """returns, whether the fourth test's (b) was failed"""
         return abs(self.total_bricks["rel.diff"]) > self.total_bricks["criterion"]
+
 
     def report(self) -> str:
         """returns the report for the file"""
@@ -57,8 +61,7 @@ class FileResult:
 
 
 
-
-def update(line, prefix, regex, old_value, updater):
+def update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable) -> Any:
     """
     Updates the value with string
     :param line - line taken as a source
@@ -74,7 +77,8 @@ def update(line, prefix, regex, old_value, updater):
         return updater(old_value, value)
     return old_value
 
-def process_file(name, path_to_folder) -> FileResult:
+
+def process_file(name: str, path_to_folder: str) -> FileResult:
     """
     process a single .stdout file into a FileResult
     :param name - name of the stdout file in format N/N.stdout
@@ -111,7 +115,7 @@ class TestResult:
     """
     Class containing results for a single test
     """
-    def __init__(self, full_name) -> None:
+    def __init__(self, full_name: str) -> None:
         self.full_name = full_name  # expecting /TEST_SET/TEST/
         self.missing_directories = []
         self.missing_files = []
@@ -119,6 +123,7 @@ class TestResult:
         self.file_data: list[FileResult] = []  # a sorted list expected
         self.solver_presence = False
         self.failed_tests = [False]*2  # [first check, second check]
+
 
     def report(self) -> str:
         """returns the report for the test"""
@@ -142,7 +147,16 @@ class TestResult:
         return f"OK: {self.full_name}\n" if output == f"FAIL: {self.full_name}\n" else output
 
 
-def check(path_to_log_folder, test_data) -> TestResult:
+    def write_report(self, path_to_log: str) -> None:
+        """writes a report to file"""
+        with open(
+            path_to_log + '/' + self.full_name + "report.txt",
+            'w', encoding='utf-8') as report:
+            report.write(self.report())
+
+
+
+def check(path_to_log_folder: str, test_data: dict) -> TestResult:
     """checks the provided test data"""
     result = TestResult(test_data['full_name'])
     for potential in ["ft_run", "ft_reference"]:
@@ -165,7 +179,8 @@ def check(path_to_log_folder, test_data) -> TestResult:
 
     return result
 
-def read_test_data(path_to_log_folder, test_full_name) -> dict[str]:
+
+def read_test_data(path_to_log_folder: str, test_full_name: str) -> dict[str]:
     """
     reads the data (directories, filenames,...) of a single test
     """
@@ -174,9 +189,9 @@ def read_test_data(path_to_log_folder, test_full_name) -> dict[str]:
     test_data["run_files"] = []
     test_data["reference_files"] = []
     full_path = path_to_log_folder + '/' + test_data["full_name"]
-    walk_results = list(os.walk(full_path))
-    test_data["directories"] = walk_results[0][1]
-    for result in walk_results[1:]:
+    walk_results = os.walk(full_path)
+    test_data["directories"] = next(walk_results)[1]
+    for result in walk_results:
         for file in result[2]:
             if file.endswith(".stdout"):
                 filename = file.split('.')[0] + '/' + file
@@ -188,13 +203,8 @@ def read_test_data(path_to_log_folder, test_full_name) -> dict[str]:
     test_data["reference_files"] = set(test_data["reference_files"])
     return test_data
 
-def write_report(path_to_log: str, test_result: TestResult):
-    """writes a report to file"""
-    with open(path_to_log + '/' + test_result.full_name + "report.txt", 'w', encoding='utf-8') as report:
-        report.write(test_result.report())
 
-
-def get_test_list(path_to_log_folder):
+def get_test_list(path_to_log_folder: str):
     """returns a list of available test names"""
     tests = []
     for test_set in os.listdir(path_to_log_folder):
@@ -202,23 +212,28 @@ def get_test_list(path_to_log_folder):
             tests.append(f'{test_set}/{test}/')
     return tests
 
-def pipeline(args):
+
+def pipeline(args: Tuple):
     """
     The pipeline for processing each test
     :param args - [path to log folder, test full name]
     """
-    test_data = read_test_data(args[0], args[1])
-    test_result = check(args[0], test_data)
-    write_report(args[0], test_result)
+    path_to_logs = args[0]
+    test = args[1]
+    test_data = read_test_data(path_to_logs, test)
+    test_result = check(path_to_logs, test_data)
+    test_result.write_report(path_to_logs)
     return test_result
 
-def process(path_to_log):
+
+def process(path_to_log: str):
     """processes the logs as per the task"""
     tests = get_test_list(path_to_log)
     with multiprocessing.Pool() as pool:
         test_results = pool.map(pipeline, zip([path_to_log]*len(tests), tests))
         for result in test_results:
             print(result.report().removesuffix('\n'))
+
 
 if __name__ == "__main__":
     process("./logs")
