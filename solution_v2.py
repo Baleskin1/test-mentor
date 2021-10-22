@@ -59,6 +59,42 @@ class FileResult:
             result += f" criterion={self.total_bricks['criterion']})\n"
         return result
 
+    @classmethod
+    def process_file(cls, name: str, run_file: TextIO, ref_file: TextIO):
+        """
+        process a single .stdout file into a FileResult
+        :param name - name of the stdout file in format N/N.stdout
+        :param path_to_run - path to the folder containing the run and reference folders.
+        :param open_file_func - some callable, that allows to get contents of a file
+                in a manner similar to open(...)
+        """
+        result = cls(name)
+        wsp_re = r'Memory Working Set Current = [\d.]* Mb, '
+        wsp_re += r'Memory Working Set Peak = (?P<value>.*) Mb'
+
+        bricks_re = r'MESH::Bricks: Total=(?P<value>.*) Gas=*'
+        updater_take_last_int = lambda _, y: int(y)
+        updater_find_max_float = lambda x, y: max(x, float(y))
+        for line_number, line in enumerate(run_file):
+            if "error" in line.lower().replace(":", " ").split():
+                result.errors.append((line_number+1, line))
+            if line.startswith("Solver finished at"):
+                result.solver_presence = True
+            result.wsp["run"] = update(line, "Memory Working Set Current",
+                wsp_re, result.wsp["run"], updater_find_max_float)
+            result.total_bricks["run"] = update(line, "MESH::Bricks: Total=",
+                bricks_re, result.total_bricks["run"], updater_take_last_int)
+
+        for line in ref_file:
+            result.wsp["ref"] = update(line, "Memory Working Set Current",
+                wsp_re, result.wsp["ref"], updater_find_max_float)
+            result.total_bricks["ref"] = update(line, "MESH::Bricks: Total=",
+                bricks_re, result.total_bricks["ref"], updater_take_last_int)
+
+        result.wsp["rel.diff"] = result.wsp["run"]/result.wsp["ref"] - 1
+        result.total_bricks["rel.diff"] = result.total_bricks["run"]/result.total_bricks["ref"] - 1
+        return result
+
 
 
 def update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable) -> Any:
@@ -77,41 +113,6 @@ def update(line: str, prefix: str, regex: str, old_value: Any, updater: Callable
         return updater(old_value, value)
     return old_value
 
-
-def process_file(name: str, path_to_folder: str, open_file_func: Callable) -> FileResult:
-    """
-    process a single .stdout file into a FileResult
-    :param name - name of the stdout file in format N/N.stdout
-    :param path_to_run - path to the folder containing the run and reference folders.
-    :param open_file_func - some callable, that allows to get contents of a file
-            in a manner similar to open(...)
-    """
-    result = FileResult(name)
-    wsp_re = r'Memory Working Set Current = [\d.]* Mb, Memory Working Set Peak = (?P<value>.*) Mb'
-    bricks_re = r'MESH::Bricks: Total=(?P<value>.*) Gas=*'
-    updater_take_last_int = lambda _, y: int(y)
-    updater_find_max_float = lambda x, y: max(x, float(y))
-    with open_file_func(path_to_folder + "ft_run/" + name, "r", encoding='utf-8') as file:
-        for line_number, line in enumerate(file):
-            if "error" in line.lower().replace(":", " ").split():
-                result.errors.append((line_number+1, line))
-            if line.startswith("Solver finished at"):
-                result.solver_presence = True
-            result.wsp["run"] = update(line, "Memory Working Set Current",
-                wsp_re, result.wsp["run"], updater_find_max_float)
-            result.total_bricks["run"] = update(line, "MESH::Bricks: Total=",
-                bricks_re, result.total_bricks["run"], updater_take_last_int)
-
-    with open_file_func(path_to_folder + "ft_reference/" + name, "r", encoding='utf-8') as file:
-        for line_number, line in enumerate(file):
-            result.wsp["ref"] = update(line, "Memory Working Set Current",
-                wsp_re, result.wsp["ref"], updater_find_max_float)
-            result.total_bricks["ref"] = update(line, "MESH::Bricks: Total=",
-                bricks_re, result.total_bricks["ref"], updater_take_last_int)
-
-    result.wsp["rel.diff"] = result.wsp["run"]/result.wsp["ref"] - 1
-    result.total_bricks["rel.diff"] = result.total_bricks["run"]/result.total_bricks["ref"] - 1
-    return result
 
 
 class TestResult:
@@ -190,16 +191,21 @@ class Test:
             result.extra_files = sorted(self.run_files.difference(self.reference_files))
             return result
 
+        full_path_to_test = path_to_log_folder + '/' + result.full_name
+        full_path_to_run = full_path_to_test + 'ft_run/'
+        full_path_to_ref = full_path_to_test + 'ft_reference/'
         for file in sorted(self.run_files):
-            result.file_data.append(
-                process_file(file, path_to_log_folder + '/' + result.full_name, open_file_func)
-                )
+            with open_file_func(full_path_to_run + file, 'r', encoding='utf-8') as run:
+                with open_file_func(full_path_to_ref + file, 'r', encoding='utf-8') as ref:
+                    result.file_data.append(
+                        FileResult.process_file(file, run, ref)
+                        )
 
         return result
 
 
-    @staticmethod
-    def read_from_fs(path_to_log_folder: str, test_full_name: str, traverse_func: Callable):
+    @classmethod
+    def read_from_fs(cls, path_to_log_folder: str, test_full_name: str, traverse_func: Callable):
         """
         reads the data (directories, filenames,...) of a single test
         :param path_to_log_folder - path to logs
@@ -208,7 +214,7 @@ class Test:
         :param traverse_function - function for traversing the test folder.
                 Should be similar to os.walk in terms of interface and return value format
         """
-        test_data = Test(test_full_name)
+        test_data = cls(test_full_name)
         test_data.run_files= set()
         test_data.reference_files = set()
         full_path = path_to_log_folder + '/' + test_data.full_name
@@ -251,7 +257,14 @@ def pipeline(args: Tuple):
     test_full_name = args[1]
     test_data = Test.read_from_fs(path_to_logs, test_full_name, os.walk)
     test_result = test_data.check(path_to_logs, open)
-    with open(path_to_logs + '/' + test_result.full_name + "report.txt",
+
+    # Test.check and test_result.write_report
+    # use different sorts of injections:
+    # check uses "open_func" since it has to call process_file
+    # from (possibly) different locations
+    # At the same time, write_report asks for "some" TextIO since
+    # it only needs to write the reoprt "somewhere"
+    with open(path_to_logs + '/' + test_full_name + "report.txt",
         'w', encoding='utf-8') as report:
 
         test_result.write_report(report)
