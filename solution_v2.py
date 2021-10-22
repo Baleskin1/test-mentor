@@ -48,15 +48,17 @@ class FileResult:
             if not self.solver_presence:
                 result += f"{self.name}: missing 'Solver finished at'\n"
         if self.failed_wsp():
-            result += f"{self.name}: different 'Memory Working Set Peak' (ft_run={self.wsp['run']},"
-            result += f" ft_reference={self.wsp['ref']},"
-            result += f" rel.diff={self.wsp['rel.diff']:.2f}, criterion={self.wsp['criterion']})\n"
+            result += (f"{self.name}: different 'Memory Working Set Peak' (ft_run={self.wsp['run']},"
+                f" ft_reference={self.wsp['ref']},"
+                f" rel.diff={self.wsp['rel.diff']:.2f}, criterion={self.wsp['criterion']})\n"
+            )
         if self.failed_total():
-            result += f"{self.name}: different 'Total' of bricks ("
-            result += f"ft_run={self.total_bricks['run']},"
-            result += f" ft_reference={self.total_bricks['ref']},"
-            result += f" rel.diff={self.total_bricks['rel.diff']:.2f},"
-            result += f" criterion={self.total_bricks['criterion']})\n"
+            result += (f"{self.name}: different 'Total' of bricks ("
+                f"ft_run={self.total_bricks['run']},"
+                f" ft_reference={self.total_bricks['ref']},"
+                f" rel.diff={self.total_bricks['rel.diff']:.2f},"
+                f" criterion={self.total_bricks['criterion']})\n"
+            )
         return result
 
     @classmethod
@@ -127,35 +129,35 @@ class TestResult:
         self.file_data: list[FileResult] = []  # a sorted list expected
         self.solver_presence = False
 
+    @staticmethod
+    def _get_quoted_sequence(strings: list[str]):
+        """
+        returns a sequence of strings joined as:
+        'string1', 'string2', ..., 'stringn'
+        """
+        add_quotes = lambda x: f"'{x}'"
+        return ", ".join(map(add_quotes, strings))
 
     def report(self) -> str:
         """returns the report for the test"""
-        output = f"FAIL: {self.full_name}\n"
-        add_quotes = lambda x: f"'{x}'"
-        if self.missing_directories:
-            for directory in self.missing_directories:
-                output += f"directory missing: {directory}\n"
-            return output
+        output = ""
+        for directory in self.missing_directories:
+            output += f"directory missing: {directory}\n"
 
-        if self.missing_files or self.extra_files:
-            if self.missing_files:
-                output += "In ft_run there are missing files present in ft_reference: "
-                output += ", ".join(map(add_quotes, self.missing_files)) + "\n"
-            if self.extra_files:
-                output += "In ft_run there are extra files not present in ft_reference: "
-                output += ", ".join(map(add_quotes, self.extra_files)) + "\n"
-            return output
+        if self.missing_files:
+            output += "In ft_run there are missing files present in ft_reference: "
+            output += self._get_quoted_sequence(self.missing_files) + "\n"
+
+        if self.extra_files:
+            output += "In ft_run there are extra files not present in ft_reference: "
+            output += self._get_quoted_sequence(self.extra_files) + "\n"
 
         for file_result in self.file_data:
             output += file_result.report()
-        return f"OK: {self.full_name}\n" if output == f"FAIL: {self.full_name}\n" else output
 
-
-    def write_report(self, writer: TextIO) -> None:
-        """
-        writes a report to file
-        """
-        writer.write(self.report())
+        if output:
+            return f"FAIL: {self.full_name}\n" + output
+        return f"OK: {self.full_name}\n"
 
 
 
@@ -215,8 +217,6 @@ class Test:
                 Should be similar to os.walk in terms of interface and return value format
         """
         test_data = cls(test_full_name)
-        test_data.run_files= set()
-        test_data.reference_files = set()
         full_path = path_to_log_folder + '/' + test_data.full_name
         walk_results = traverse_func(full_path)
         test_data.directories = next(walk_results)[1]
@@ -267,7 +267,7 @@ def pipeline(args: Tuple):
     with open(path_to_logs + '/' + test_full_name + "report.txt",
         'w', encoding='utf-8') as report:
 
-        test_result.write_report(report)
+        report.write(test_result.report())
     return test_result
 
 
