@@ -43,8 +43,7 @@ def process_file(path_to_folder: str, filename: str, include_errors: bool) -> Fi
 
             parsed_total = Regexes.bricks_total.match(line)
             if parsed_total is not None:
-                bricks = int(parsed_total.group("value"))
-                result.total_bricks = bricks
+                result.total_bricks = int(parsed_total.group("value"))
         return result
 
 
