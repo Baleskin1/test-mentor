@@ -26,14 +26,15 @@ class FileData:
         self.memory_peak = 0.0
         self.total_bricks = 0.0
 
-def process_file(path_to_folder: str, filename: str, include_errors: bool) -> FileData:
+def process_file(path_to_folder: str, filename: str, check_errors_and_solver_presence: bool) -> FileData:
     with open(path_to_folder+filename, 'r', encoding='utf-8') as file:
         result = FileData(filename)
         for line_number, line in enumerate(file):
-            if include_errors and "error" in line.lower().replace(":", " ").split():
-                result.errors.append((line_number+1, line))
-            if line.startswith("Solver finished at"):
-                result.solver_presence = True
+            if check_errors_and_solver_presence:
+                if "error" in line.lower().replace(":", " ").split():
+                    result.errors.append((line_number+1, line))
+                if line.startswith("Solver finished at"):
+                    result.solver_presence = True
 
             parsed_wsp = Regexes.memory_peak.match(line)
             if parsed_wsp is not None:
